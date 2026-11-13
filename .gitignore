@@ -1,0 +1,11 @@
+# Godot 4+ cache & import artifacts
+.godot/
+godot_game/.godot/
+godot_game/imported_packs/
+*.translation
+
+# OS / Editor files
+.DS_Store
+Thumbs.db
+*.tmp
+*.bak

@@ -1,0 +1,21 @@
+; Engine configuration file.
+; Open this folder in Godot 4.x and press F5 (Run Project) to test the map & controls.
+
+config_version=5
+
+[application]
+
+config/name="SOMEONE'S HERE - Map & Controls Test"
+config/description="Fears to Fathom style retro PSX psychological horror - Map & Player Controls Test Build"
+run/main_scene="res://scenes/main_map_test.tscn"
+config/icon="res://icon.svg"
+
+[display]
+
+window/size/viewport_width=1600
+window/size/viewport_height=900
+window/size/resizable=true
+
+[rendering]
+
+anti_aliasing/quality/msaa_3d=1
