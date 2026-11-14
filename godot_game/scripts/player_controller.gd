@@ -20,6 +20,11 @@ const BASE_FOV: float = 73.0
 const SPRINT_FOV: float = 79.0
 const ZOOM_FOV: float = 42.0
 const MOUSE_SENSITIVITY: float = 0.0021
+# Phone poses (hand-rig space): lowered in the right hand -> raised in front of the chest
+const PHONE_LOW_POS := Vector3(0.20, -0.50, -0.34)
+const PHONE_LOW_ROT := Vector3(-35.0, 25.0, 0.0)
+const PHONE_UP_POS := Vector3(0.0, -0.22, -0.42)
+const PHONE_UP_ROT := Vector3(78.0, 0.0, 0.0)
 
 var gravity: float = 11.5
 var noclip_enabled: bool = false
@@ -45,6 +50,8 @@ var _spot_inner: SpotLight3D
 var _spot_outer: SpotLight3D
 var _phone_pivot: Node3D
 var _phone_light: OmniLight3D
+var _phone_screen_mesh: MeshInstance3D
+var _phone_t: float = 0.0
 var _broom_pivot: Node3D
 
 var _sfx_player: AudioStreamPlayer
@@ -133,27 +140,33 @@ func _build_flashlight_rig() -> void:
 func _build_phone_rig() -> void:
 	_phone_pivot = Node3D.new()
 	_phone_pivot.name = "PhonePivot"
-	_phone_pivot.position = Vector3(-0.23, -0.45, -0.30)
+	_phone_pivot.position = PHONE_LOW_POS
+	_phone_pivot.rotation_degrees = PHONE_LOW_ROT
 	_phone_pivot.visible = false
 	_hand_rig.add_child(_phone_pivot)
 
 	_phone_light = OmniLight3D.new()
 	_phone_light.light_color = Color(0.62, 0.80, 1.0)
-	_phone_light.light_energy = 0.55
-	_phone_light.omni_range = 1.6
-	_phone_light.position = Vector3(0.0, 0.05, 0.04)
+	_phone_light.light_energy = 0.35
+	_phone_light.omni_range = 1.2
+	_phone_light.position = Vector3(0.0, 0.08, 0.06)
 	_phone_pivot.add_child(_phone_light)
 
-	var screen_lbl := Label3D.new()
-	screen_lbl.text = "11:14 PM  [1 BAR]\nVikram (Mgr):\nCheck shop & road."
-	screen_lbl.font_size = 18
-	screen_lbl.pixel_size = 0.00055
-	screen_lbl.modulate = Color(0.78, 0.93, 1.0)
-	screen_lbl.billboard = BaseMaterial3D.BILLBOARD_DISABLED
-	screen_lbl.no_depth_test = false
-	screen_lbl.position = Vector3(0.0, 0.015, 0.0)
-	screen_lbl.rotation_degrees = Vector3(-18.0, 0.0, 0.0)
-	_phone_pivot.add_child(screen_lbl)
+	# Glowing screen on the phone's top face (+Y). The phone model is 8.7 x 17.3 cm.
+	_phone_screen_mesh = MeshInstance3D.new()
+	_phone_screen_mesh.name = "PhoneScreenGlow"
+	var quad := PlaneMesh.new()
+	quad.size = Vector2(0.074, 0.142)
+	_phone_screen_mesh.mesh = quad
+	_phone_screen_mesh.position = Vector3(0.0, 0.0065, 0.0)
+	var glow := StandardMaterial3D.new()
+	glow.albedo_color = Color(0.10, 0.16, 0.20)
+	glow.emission_enabled = true
+	glow.emission = Color(0.55, 0.80, 1.0)
+	glow.emission_energy_multiplier = 1.4
+	_phone_screen_mesh.material_override = glow
+	_phone_screen_mesh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_phone_pivot.add_child(_phone_screen_mesh)
 
 
 func _build_broom_rig() -> void:
@@ -168,7 +181,10 @@ func _build_broom_rig() -> void:
 func attach_handheld_models(flashlight_node: Node3D, phone_node: Node3D, broom_node: Node3D) -> void:
 	if flashlight_node != null:
 		_disable_viewmodel_shadows(flashlight_node)
+		# flashlight.glb: lens (steklo) sits at +Z in the file, so turn it 180 deg -> lens points forward (-Z), button stays on top
 		flashlight_node.scale = Vector3(0.55, 0.55, 0.55)
+		flashlight_node.rotation_degrees = Vector3(0.0, 180.0, 0.0)
+		flashlight_node.position = Vector3(0.0, -0.005, -0.076)
 		_flashlight_pivot.add_child(flashlight_node)
 	else:
 		# Fallback sleek cylinder torch if model missing
@@ -184,8 +200,9 @@ func attach_handheld_models(flashlight_node: Node3D, phone_node: Node3D, broom_n
 
 	if phone_node != null:
 		_disable_viewmodel_shadows(phone_node)
-		phone_node.scale = Vector3(0.95, 0.95, 0.95)
-		phone_node.rotation_degrees = Vector3(72.0, -10.0, 6.0)
+		# cell_phone.glb is already real size (17.3 cm), flat, top face = +Y; the pivot does the orientation
+		phone_node.scale = Vector3.ONE
+		phone_node.rotation_degrees = Vector3.ZERO
 		_phone_pivot.add_child(phone_node)
 
 	if broom_node != null:
@@ -285,7 +302,6 @@ func _unhandled_input(event: InputEvent) -> void:
 				_emit_status()
 			KEY_P:
 				phone_open = not phone_open
-				_phone_pivot.visible = phone_open
 				if not _play_file_sfx(_phone_stream):
 					_play_synth_burst(0.05, 880.0, 0.25, 0.25)
 				_emit_status()
@@ -419,11 +435,16 @@ func _update_camera_and_hands(delta: float, raw_dir: Vector2, sprinting: bool, c
 	_sway_offset = _sway_offset.lerp(Vector2.ZERO, 9.0 * delta)
 	_hand_rig.position = Vector3(_sway_offset.x, _sway_offset.y + bob_y * 0.35, 0.0)
 
-	var flash_goal_y: float = -0.21 if flashlight_enabled else -0.34
+	# Flashlight drops out of the way while the phone is up
+	var flash_goal_y: float = -0.21 if (flashlight_enabled and not phone_open) else -0.42
 	_flashlight_pivot.position.y = lerpf(_flashlight_pivot.position.y, flash_goal_y, 10.0 * delta)
 
-	var phone_goal_y: float = -0.16 if phone_open else -0.46
-	_phone_pivot.position.y = lerpf(_phone_pivot.position.y, phone_goal_y, 11.0 * delta)
+	# Phone: raise / lower between the hand pose and the face pose
+	_phone_t = move_toward(_phone_t, 1.0 if phone_open else 0.0, delta * 3.4)
+	var e: float = smoothstep(0.0, 1.0, _phone_t)
+	_phone_pivot.position = PHONE_LOW_POS.lerp(PHONE_UP_POS, e)
+	_phone_pivot.rotation_degrees = PHONE_LOW_ROT.lerp(PHONE_UP_ROT, e)
+	_phone_pivot.visible = _phone_t > 0.002
 
 
 func _update_raycast_inspector() -> void:

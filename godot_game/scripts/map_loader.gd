@@ -1087,9 +1087,11 @@ func _ground_and_add_node(node: Node3D, parent: Node3D, target_ground_pos: Vecto
 		aabb.position.z + aabb.size.z * 0.5
 	).rotated(Vector3.UP, node.rotation.y)
 	node.position = target_ground_pos - offset
-	_add_trimesh_collisions_recursive(node, "%s  [%.2fm x %.2fm x %.2fm | %d meshes]" % [
-		rel_name, aabb.size.x, aabb.size.y, aabb.size.z, meshes.size()
-	])
+	# Trees, bushes and grass stay walk-through (a box around a whole tree would block the player)
+	if not rel_name.to_lower().contains("vegetation"):
+		_add_trimesh_collisions_recursive(node, "%s  [%.2fm x %.2fm x %.2fm | %d meshes]" % [
+			rel_name, aabb.size.x, aabb.size.y, aabb.size.z, meshes.size()
+		])
 	parent.add_child(node)
 
 
@@ -1236,6 +1238,9 @@ func _collect_mesh_names(root: Node) -> PackedStringArray:
 	return out
 
 
+# Collision = one BoxShape3D per mesh part (its local AABB).
+# ConcavePolygonShape3D (trimesh) is avoided on purpose: it crashed the physics engine
+# (Illegal Instruction) when the inspector raycast hit the Gas_Pilar pieces.
 func _add_trimesh_collisions_recursive(root: Node, label_prefix: String) -> void:
 	var stack: Array[Node] = [root]
 	while not stack.is_empty():
@@ -1243,15 +1248,17 @@ func _add_trimesh_collisions_recursive(root: Node, label_prefix: String) -> void
 		if cur is MeshInstance3D:
 			var mi := cur as MeshInstance3D
 			if mi.mesh != null and mi.mesh.get_surface_count() > 0:
-				var shape: ConcavePolygonShape3D = mi.mesh.create_trimesh_shape()
-				if shape != null:
-					shape.backface_collision = true
-					var sb := StaticBody3D.new()
-					sb.set_meta("asset_label", "%s  ->  part: %s" % [label_prefix, mi.name])
-					var cs := CollisionShape3D.new()
-					cs.shape = shape
-					sb.add_child(cs)
-					mi.add_child(sb)
+				var box: AABB = mi.mesh.get_aabb()
+				var size := Vector3(maxf(box.size.x, 0.05), maxf(box.size.y, 0.05), maxf(box.size.z, 0.05))
+				var sb := StaticBody3D.new()
+				sb.set_meta("asset_label", "%s  ->  part: %s" % [label_prefix, mi.name])
+				var cs := CollisionShape3D.new()
+				var bs := BoxShape3D.new()
+				bs.size = size
+				cs.shape = bs
+				cs.position = box.get_center()
+				sb.add_child(cs)
+				mi.add_child(sb)
 		for ch in cur.get_children():
 			stack.push_back(ch)
 

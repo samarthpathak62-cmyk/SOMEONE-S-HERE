@@ -49,7 +49,7 @@ godot_game/
 | **`Space`** | Jump (Noclip mode me upar) |
 | **`Right Mouse (Hold)`** | Squint / Focus zoom |
 | **`F`** | Flashlight ON/OFF (click sound) |
-| **`P`** | Cell phone up/down (SMS beep) |
+| **`P`** | Phone raise / put away — 3D phone chehre tak uthta hai aur messages wali screen khulti hai (SMS beep) |
 | **`B`** | Broom haath me |
 | **`V`** | **Noclip fly** — deewar ke aar-paar ghus kar interior check karo |
 | **`L`** | Night horror ↔ bright inspector daylight |
@@ -59,6 +59,15 @@ godot_game/
 | **`Tab`** | Full asset list (har model ke saath Teleport button) |
 | **`H`** | HUD hide/show |
 | **`Esc`** | Mouse free / lock |
+
+## 🔧 Crash fix (Illegal Instruction)
+- Pehle collision ke liye `ConcavePolygonShape3D` (trimesh) use hota tha; Gas_Pilar par raycast hone pe crash hua.
+- Ab har mesh ko **BoxShape3D** collider milta hai, aur trees/bushes par collision nahi (walk-through).
+- Physics engine **GodotPhysics3D** set kiya hai (`project.godot`).
+
+## 📱 Phone (Fears to Fathom style)
+- P dabane par phone haath se uthkar chehre ke saamne aata hai, screen glow karti hai, aur messages ka overlay khulta hai.
+- Messages abhi placeholder hain (`scripts/phone_screen.gd` ke `MESSAGES` me edit kar sakta hai).
 
 ## ⚠️ Known limits (abhi)
 - Ye game engine me test nahi hua hai jab tak aap run na karein — pehli run pe kuch pieces ka pivot/size tweak lag sakta hai.

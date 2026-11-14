@@ -6,6 +6,7 @@ var _sky_mat: ProceduralSkyMaterial
 var _sun_moon: DirectionalLight3D
 
 var _player: HorrorPlayerController
+var _phone_ui: PhoneScreenUI
 var _map_loader: RetroMapLoader
 
 var _vhs_rect: ColorRect
@@ -128,7 +129,11 @@ func _setup_map_loader_and_player() -> void:
 	add_child(_player)
 
 	_player.inspected_target_changed.connect(_on_inspected_target_changed)
-	_player.mode_status_changed.connect(func(_a: bool, _b: bool, _c: bool, _d: bool) -> void:
+	_phone_ui = PhoneScreenUI.new()
+	_phone_ui.name = "PhoneScreenUI"
+	add_child(_phone_ui)
+	_player.mode_status_changed.connect(func(_a: bool, _b: bool, phone_on: bool, _d: bool) -> void:
+		_phone_ui.set_open(phone_on)
 		_refresh_hud_text()
 	)
 	_map_loader.loading_status_updated.connect(_on_loading_status_updated)
