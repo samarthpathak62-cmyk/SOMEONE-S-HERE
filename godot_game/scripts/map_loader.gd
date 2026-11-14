@@ -122,6 +122,7 @@ func _build_base_ground_and_highway() -> void:
 	var ground_sb := StaticBody3D.new()
 	ground_sb.name = "ForestGround"
 	ground_sb.set_meta("asset_label", "Base Terrain: Forest Ground (520m x 520m)")
+	ground_sb.add_to_group("inspectable")
 	var ground_col := CollisionShape3D.new()
 	var ground_box := BoxShape3D.new()
 	ground_box.size = Vector3(520.0, 1.0, 520.0)
@@ -271,6 +272,7 @@ func _build_zone4_item_table(items_dir: String) -> void:
 	table_sb.name = "ShowcaseTable"
 	table_sb.position = Vector3(-34.0, 0.0, -5.5)
 	table_sb.set_meta("asset_label", "Zone 4 Inspection Table (Uploaded Props)")
+	table_sb.add_to_group("inspectable")
 	var cs := CollisionShape3D.new()
 	var bx := BoxShape3D.new()
 	bx.size = Vector3(6.5, 0.95, 1.6)
@@ -1254,6 +1256,7 @@ func _add_trimesh_collisions_recursive(root: Node, label_prefix: String) -> void
 				var size := Vector3(maxf(box.size.x, 0.05), maxf(box.size.y, 0.05), maxf(box.size.z, 0.05))
 				var sb := StaticBody3D.new()
 				sb.set_meta("asset_label", "%s  ->  part: %s" % [label_prefix, mi.name])
+				sb.add_to_group("inspectable")
 				var cs := CollisionShape3D.new()
 				var bs := BoxShape3D.new()
 				bs.size = size

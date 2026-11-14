@@ -447,28 +447,85 @@ func _update_camera_and_hands(delta: float, raw_dir: Vector2, sprinting: bool, c
 	_phone_pivot.visible = _phone_t > 0.002
 
 
+# Inspector: finds the prop under the crosshair.
+# It does NOT use physics ray queries (get_world_3d().direct_space_state.intersect_ray).
+# Both crashes (Gas_Pilar, Utility Pole) happened inside that query, so we test the
+# "inspectable" box colliders with plain ray-vs-OBB maths instead. Movement still uses physics.
+const INSPECT_RANGE: float = 65.0
+const INSPECT_INTERVAL: float = 0.08
+var _inspect_timer: float = 0.0
+
+
 func _update_raycast_inspector() -> void:
-	if _cam == null or get_world_3d() == null:
+	if _cam == null or get_tree() == null:
 		return
+	_inspect_timer -= get_physics_process_delta_time()
+	if _inspect_timer > 0.0:
+		return
+	_inspect_timer = INSPECT_INTERVAL
+
 	var from: Vector3 = _cam.global_position
-	var to: Vector3 = from - _cam.global_transform.basis.z * 65.0
-	var query := PhysicsRayQueryParameters3D.create(from, to)
-	query.exclude = [get_rid()]
-	var hit: Dictionary = get_world_3d().direct_space_state.intersect_ray(query)
+	var dir: Vector3 = -_cam.global_transform.basis.z
+	var best_t: float = INF
+	var best_node: Node = null
+
+	for n in get_tree().get_nodes_in_group("inspectable"):
+		var sb := n as StaticBody3D
+		if sb == null or not sb.is_inside_tree():
+			continue
+		var cs: CollisionShape3D = null
+		for ch in sb.get_children():
+			if ch is CollisionShape3D:
+				cs = ch as CollisionShape3D
+				break
+		if cs == null or not (cs.shape is BoxShape3D):
+			continue
+		var half: Vector3 = (cs.shape as BoxShape3D).size * 0.5
+		var box_xf: Transform3D = sb.global_transform * cs.transform
+		if box_xf.origin.distance_to(from) > INSPECT_RANGE + half.length():
+			continue
+		var inv: Transform3D = box_xf.affine_inverse()
+		var t: float = _ray_box_fraction(inv * from, inv.basis * (dir * INSPECT_RANGE), half)
+		if t >= 0.0 and t < best_t:
+			best_t = t
+			best_node = sb
 
 	var text: String = ""
-	if not hit.is_empty():
-		var collider: Object = hit.get("collider")
-		var dist: float = from.distance_to(hit.get("position", from))
-		if collider is Node:
-			var node := collider as Node
-			if node.has_meta("asset_label"):
-				text = "%s  [%.1fm]" % [str(node.get_meta("asset_label")), dist]
-			else:
-				text = "%s  [%.1fm]" % [node.name, dist]
+	if best_node != null:
+		var dist: float = best_t * INSPECT_RANGE
+		if best_node.has_meta("asset_label"):
+			text = "%s  [%.1fm]" % [str(best_node.get_meta("asset_label")), dist]
+		else:
+			text = "%s  [%.1fm]" % [str(best_node.name), dist]
 	if text != _last_ray_text:
 		_last_ray_text = text
 		inspected_target_changed.emit(text)
+
+
+# Slab test: ray origin o, direction d (already scaled to range), box half-size h, box centred at 0.
+# Returns the fraction t in [0, 1] of the first hit, or -1.0 when there is no hit.
+static func _ray_box_fraction(o: Vector3, d: Vector3, h: Vector3) -> float:
+	var tmin: float = 0.0
+	var tmax: float = 1.0
+	for axis in 3:
+		var oa: float = o[axis]
+		var da: float = d[axis]
+		var ha: float = h[axis]
+		if absf(da) < 0.000001:
+			if oa < -ha or oa > ha:
+				return -1.0
+		else:
+			var t1: float = (-ha - oa) / da
+			var t2: float = (ha - oa) / da
+			if t1 > t2:
+				var tmp: float = t1
+				t1 = t2
+				t2 = tmp
+			tmin = maxf(tmin, t1)
+			tmax = minf(tmax, t2)
+			if tmin > tmax:
+				return -1.0
+	return tmin
 
 
 func teleport_to(world_pos: Vector3, face_yaw_deg: float = 0.0) -> void:
