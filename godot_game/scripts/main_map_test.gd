@@ -21,9 +21,12 @@ var _daylight_inspector_on: bool = false
 var _vhs_enabled: bool = true
 var _hud_visible: bool = true
 var _last_prompt: String = ""
+var _perf_timer: float = 0.0
 
 
 func _ready() -> void:
+	# Laptop without dedicated GPU: cap the frame rate so the GPU is not pushed to the limit
+	Engine.max_fps = 60
 	_setup_environment_and_lighting()
 	_setup_map_loader_and_player()
 	_setup_ui_and_vhs_overlay()
@@ -32,11 +35,24 @@ func _ready() -> void:
 	_refresh_hud_text()
 
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
+	_log_performance(delta)
 	var hint: String = _map_loader.hint_for(_player.inspected_node)
 	if hint != _last_prompt:
 		_last_prompt = hint
 		_prompt_lbl.text = hint
+
+
+# Prints FPS / memory every 5 s to the Output panel. If the game closes by itself, copy the last [PERF] lines.
+func _log_performance(delta: float) -> void:
+	_perf_timer -= delta
+	if _perf_timer > 0.0:
+		return
+	_perf_timer = 5.0
+	var fps: int = int(Performance.get_monitor(Performance.TIME_FPS))
+	var mem_mb: float = Performance.get_monitor(Performance.MEMORY_STATIC) / 1048576.0
+	var objs: int = int(Performance.get_monitor(Performance.OBJECT_COUNT))
+	print("[PERF] fps=%d static_mem=%.0fMB objects=%d" % [fps, mem_mb, objs])
 
 
 # Night ambience: wind + crickets loops from res://assets/audio (skipped if missing)
@@ -72,8 +88,8 @@ func _setup_environment_and_lighting() -> void:
 	_env.background_mode = Environment.BG_SKY
 	_env.sky = sky
 	_env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
-	_env.glow_enabled = true
-	_env.glow_intensity = 0.55
+	# Glow is expensive on integrated GPUs, so it stays off
+	_env.glow_enabled = false
 
 	_world_env.environment = _env
 	add_child(_world_env)
@@ -81,7 +97,7 @@ func _setup_environment_and_lighting() -> void:
 	_sun_moon = DirectionalLight3D.new()
 	_sun_moon.name = "MoonOrSunLight"
 	_sun_moon.rotation_degrees = Vector3(-42.0, -35.0, 0.0)
-	_sun_moon.shadow_enabled = true
+	_sun_moon.shadow_enabled = false   # shadows are costly on integrated GPUs
 	add_child(_sun_moon)
 
 	_apply_lighting_mode()

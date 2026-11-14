@@ -12,13 +12,16 @@ config/icon="res://icon.svg"
 
 [display]
 
-window/size/viewport_width=1600
-window/size/viewport_height=900
+window/size/viewport_width=1280
+window/size/viewport_height=720
 window/size/resizable=true
 
 [rendering]
 
-anti_aliasing/quality/msaa_3d=1
+; Compatibility (OpenGL) renderer: much lighter than Forward+ on laptops without a dedicated GPU
+renderer/rendering_method="gl_compatibility"
+renderer/rendering_method.mobile="gl_compatibility"
+anti_aliasing/quality/msaa_3d=0
 
 [physics]
 

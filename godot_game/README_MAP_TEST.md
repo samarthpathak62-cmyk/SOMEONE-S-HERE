@@ -51,3 +51,13 @@ The GLB has no baked animation. These are added by code:
 
 ## Run
 Open `project.godot` in Godot 4.7 and press F5 (main scene: `scenes/main_map_test.tscn`).
+
+## Performance (laptop without dedicated GPU)
+- Renderer: **Compatibility (OpenGL)** instead of Forward+. Set in `project.godot`.
+- Glow, sun shadows, flashlight shadow and MSAA are OFF. Frame rate is capped at 60 (`main_map_test.gd`).
+- Window is 1280x720.
+- The game prints `[PERF] fps=.. static_mem=..MB objects=..` every 5 seconds in the Godot Output panel. If it closes by itself, copy the last few `[PERF]` lines and send them.
+
+## Look (PSX / Fears to Fathom style)
+- `shaders/psx_station.gdshader`: applied to all opaque station meshes. Vertex snapping (PS1 jitter), colour banding, quantized light bands. Glass keeps its original material.
+- `shaders/vhs_psx_overlay.gdshader`: VHS scanlines, grain, vignette, tape jitter (G toggles it). Uses one screen read.

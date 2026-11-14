@@ -124,7 +124,7 @@ func _build_flashlight_rig() -> void:
 	_spot_inner.spot_attenuation = 1.15
 	_spot_inner.spot_angle = 23.0
 	_spot_inner.spot_angle_attenuation = 0.55
-	_spot_inner.shadow_enabled = true
+	_spot_inner.shadow_enabled = false
 	_flashlight_pivot.add_child(_spot_inner)
 
 	# Wide ambient spill halo (classic Fears to Fathom peripheral visibility)

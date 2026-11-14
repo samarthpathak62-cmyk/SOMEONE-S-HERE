@@ -19,6 +19,7 @@ class_name RetroMapLoader
 const STATION_RES: String = "assets/mile47/gas_station.glb"
 const HANDHELD_DIR_RES: String = "assets/fewitemsandmodels"
 const SFX_DOOR_RES: String = "res://assets/audio/sfx_door_creak.wav"
+const PSX_SHADER_RES: String = "res://shaders/psx_station.gdshader"
 
 const DOOR_OPEN_ANGLE: float = 1.66
 const LID_OPEN_ANGLE: float = -1.25
@@ -42,6 +43,7 @@ var _parts: Dictionary = {}          # MeshInstance3D instance id -> info Dictio
 var _sweepers: Array[Dictionary] = []
 var _flickers: Array[Dictionary] = []
 var _clock: float = 0.0
+var _psx_cache: Dictionary = {}     # original material id -> PSX ShaderMaterial
 
 
 func _ready() -> void:
@@ -54,6 +56,7 @@ func build_all_and_equip_player(player: HorrorPlayerController) -> void:
 	station_root = _load_station()
 	if station_root != null:
 		_setup_station(station_root)
+		_apply_psx_materials(station_root)
 		_spawn_canopy_lights()
 	_load_handhelds(player)
 
@@ -179,6 +182,42 @@ func _setup_station(root: Node3D) -> void:
 				_register_nudge(mi, kind)
 			"item":
 				_register_item(mi)
+
+
+# Replaces opaque StandardMaterial3D surfaces with the PSX shader (one shared material per original material).
+# Transparent surfaces (glass) keep their original material.
+func _apply_psx_materials(root: Node3D) -> void:
+	var shader: Shader = load(PSX_SHADER_RES) as Shader
+	if shader == null:
+		return
+	var white_img := Image.create(1, 1, false, Image.FORMAT_RGBA8)
+	white_img.fill(Color.WHITE)
+	var white_tex := ImageTexture.create_from_image(white_img)
+	var stack: Array[Node] = [root]
+	while not stack.is_empty():
+		var cur: Node = stack.pop_back()
+		if cur is MeshInstance3D and (cur as MeshInstance3D).mesh != null:
+			var mi := cur as MeshInstance3D
+			for s in mi.mesh.get_surface_count():
+				var orig: Material = mi.get_active_material(s)
+				if not (orig is StandardMaterial3D):
+					continue
+				var std := orig as StandardMaterial3D
+				if std.transparency != BaseMaterial3D.TRANSPARENCY_DISABLED:
+					continue
+				var key: int = std.get_instance_id()
+				if not _psx_cache.has(key):
+					var sm := ShaderMaterial.new()
+					sm.shader = shader
+					var tex: Texture2D = white_tex
+					if std.albedo_texture != null:
+						tex = std.albedo_texture
+					sm.set_shader_parameter("albedo_tex", tex)
+					sm.set_shader_parameter("albedo_tint", std.albedo_color)
+					_psx_cache[key] = sm
+				mi.set_surface_override_material(s, _psx_cache[key] as Material)
+		for ch in cur.get_children():
+			stack.push_back(ch)
 
 
 func _classify(mi: MeshInstance3D) -> String:
