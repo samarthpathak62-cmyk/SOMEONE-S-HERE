@@ -472,6 +472,7 @@ func _discover_and_load_retroworld() -> void:
 
 	# A. Check unzipped folders in repo root or godot_game/
 	var dir_candidates: Array[String] = [
+		_repo_root.path_join("map"),
 		_repo_root.path_join("3D_Retro_World 0.01"),
 		_repo_root.path_join("3D_Retro_World"),
 		_repo_root.path_join("retroworld"),
