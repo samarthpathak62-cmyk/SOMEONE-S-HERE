@@ -3,6 +3,8 @@ class_name HorrorPlayerController
 
 signal inspected_target_changed(description: String)
 signal mode_status_changed(noclip_on: bool, flashlight_on: bool, phone_on: bool, broom_on: bool)
+# E pressed while looking at an object: the map decides what happens (door, lid, item...)
+signal interact_requested(target: Node)
 
 const WALK_SPEED: float = 4.1
 const SPRINT_SPEED: float = 6.9
@@ -32,6 +34,7 @@ var flashlight_enabled: bool = true
 var phone_open: bool = false
 var broom_equipped: bool = false
 var ui_blocking_input: bool = false
+var inspected_node: Node = null   # object under the crosshair (set by _update_raycast_inspector)
 
 var _yaw: float = 0.0
 var _pitch: float = 0.0
@@ -310,6 +313,9 @@ func _unhandled_input(event: InputEvent) -> void:
 				_broom_pivot.visible = broom_equipped
 				_play_synth_burst(0.07, 240.0, 0.65, 0.28)
 				_emit_status()
+			KEY_E:
+				if not noclip_enabled:
+					interact_requested.emit(inspected_node)
 			KEY_V:
 				noclip_enabled = not noclip_enabled
 				velocity = Vector3.ZERO
@@ -490,6 +496,7 @@ func _update_raycast_inspector() -> void:
 			best_t = t
 			best_node = sb
 
+	inspected_node = best_node
 	var text: String = ""
 	if best_node != null:
 		var dist: float = best_t * INSPECT_RANGE
