@@ -26,7 +26,11 @@ var _repo_root: String = ""
 var _extract_cache_root: String = ""
 
 # Teleport landmarks populated during map build
-var landmark_station: Vector3 = Vector3(0.0, 0.2, 9.0)
+var landmark_station: Vector3 = Vector3(5.0, 0.2, 3.0)
+var full_station_loaded: bool = false
+const FULL_STATION_RES := "assets/mile47/gas_station.glb"
+# Names that never get collision (trees, bushes, background, terrain, highway)
+const STATION_SCENERY_WORDS: Array[String] = ["tree", "bush", "background", "ground", "road"]
 var landmark_campsite: Vector3 = Vector3(44.0, 0.2, -26.0)
 var landmark_gallery: Vector3 = Vector3(-36.0, 0.2, 32.0)
 var landmark_showcase: Vector3 = Vector3(-34.0, 0.2, 6.0)
@@ -55,6 +59,9 @@ func _ready() -> void:
 
 func build_all_and_equip_player(player: HorrorPlayerController) -> void:
 	asset_manifest.clear()
+
+	# 0. Mile 47 full gas station model (store, canopy, pumps, interior) - the main map
+	_load_full_station_map()
 
 	# 1. Load Player Handhelds + Uploaded Items & Vehicles (fewitemsandmodels/)
 	var items_dir: String = _find_existing_dir([
@@ -681,12 +688,20 @@ func _populate_retroworld_models(raw_models: Array[Dictionary]) -> void:
 		named[str(rec["rel_path"]).get_file().get_basename()] = rec
 
 	var used: Dictionary = {}
-	_assemble_mile47_station(named, used)
+	# The full station model replaces the hand-built store/canopy/pump layout (no overlap)
+	if not full_station_loaded:
+		_assemble_mile47_station(named, used)
 	_assemble_campsite(named, used)
 
 	# 2. Anything from the station/camp folders NOT in the layout goes to a labelled side row (north of the map)
 	var leftover_x: float = -60.0
-	for rec in station_entries + camp_entries:
+	# With the full station model, the station pieces already live in the Zone 3 gallery, so no long side row
+	var leftover_src: Array = []
+	if full_station_loaded:
+		leftover_src = camp_entries.duplicate()
+	else:
+		leftover_src = station_entries + camp_entries
+	for rec in leftover_src:
 		var key: String = str(rec["rel_path"]).get_file().get_basename()
 		if used.has(key):
 			continue
@@ -1039,6 +1054,83 @@ func _spawn_station_inspection_lights(station_pos: Vector3, aabb: AABB) -> void:
 		l.light_color = Color(0.95, 0.98, 1.0)
 		l.light_energy = 1.85
 		l.omni_range = 16.0
+		_dynamic_pack_root.add_child(l)
+		_station_interior_lights.append(l)
+
+
+# ============================================================================
+# MILE 47 FULL GAS STATION (pre-assembled model from the user)
+# ============================================================================
+
+func _load_full_station_map() -> void:
+	var glb_path: String = _project_dir.path_join(FULL_STATION_RES)
+	if not FileAccess.file_exists(glb_path):
+		push_warning("Mile 47 station model missing: " + glb_path)
+		return
+	var root: Node3D = _instantiate_gltf_or_fbx(glb_path)
+	if root == null:
+		push_warning("Mile 47 station model failed to load: " + glb_path)
+		return
+	root.name = "Mile47FullStation"
+	root.position = Vector3.ZERO
+	_world_root.add_child(root)
+	_add_station_collisions(root)
+	_spawn_full_station_lights()
+	full_station_loaded = true
+
+
+# One box collider per solid mesh part. Scenery (trees, bushes, background, ground, road) and
+# flat or tiny parts (floor tiles, items on shelves, signs) get no collision, so the player walks
+# through the forest and onto the forecourt, while walls, pumps, pillars, counters and fridges block.
+func _add_station_collisions(root: Node) -> void:
+	var stack: Array[Node] = [root]
+	while not stack.is_empty():
+		var cur: Node = stack.pop_back()
+		if cur is MeshInstance3D and _station_part_is_solid(cur as MeshInstance3D):
+			var mi := cur as MeshInstance3D
+			var box: AABB = mi.mesh.get_aabb()
+			var sb := StaticBody3D.new()
+			sb.set_meta("asset_label", "Mile 47 Station  ->  %s  [%.2f x %.2f x %.2f m]" % [
+				str(mi.name), box.size.x, box.size.y, box.size.z])
+			sb.add_to_group("inspectable")
+			var cs := CollisionShape3D.new()
+			var bs := BoxShape3D.new()
+			bs.size = box.size
+			cs.shape = bs
+			cs.position = box.get_center()
+			sb.add_child(cs)
+			mi.add_child(sb)
+		for ch in cur.get_children():
+			stack.push_back(ch)
+
+
+func _station_part_is_solid(mi: MeshInstance3D) -> bool:
+	if mi.mesh == null or mi.mesh.get_surface_count() == 0:
+		return false
+	var sz: Vector3 = mi.mesh.get_aabb().size
+	if sz.y < 0.3 or maxf(sz.x, sz.z) < 0.35:
+		return false
+	var w: Node = mi
+	while w != null:
+		var low: String = str(w.name).to_lower()
+		for k in STATION_SCENERY_WORDS:
+			if low.contains(k):
+				return false
+		w = w.get_parent()
+	return true
+
+
+func _spawn_full_station_lights() -> void:
+	var spots: Array[Vector3] = [
+		Vector3(4.5, 3.1, -17.0), Vector3(4.5, 3.1, -21.0), Vector3(4.5, 3.1, -25.0),  # store interior
+		Vector3(5.0, 6.0, 0.0), Vector3(5.0, 6.0, 6.0),                                 # forecourt canopy
+	]
+	for p in spots:
+		var l := OmniLight3D.new()
+		l.position = p
+		l.light_color = Color(0.95, 0.98, 1.0)
+		l.light_energy = 1.6
+		l.omni_range = 14.0
 		_dynamic_pack_root.add_child(l)
 		_station_interior_lights.append(l)
 

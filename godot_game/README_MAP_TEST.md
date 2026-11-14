@@ -73,3 +73,10 @@ godot_game/
 - Ye game engine me test nahi hua hai jab tak aap run na karein — pehli run pe kuch pieces ka pivot/size tweak lag sakta hai.
 - Audio files **placeholder** (procedural) hain; baad me real sounds se replace kar sakte ho (same naam).
 - `sfx_door_creak.wav` abhi kisi key se trigger nahi hai (doors ka interaction next phase me).
+
+## 🏪 Main map: Mile 47 full gas station (naya)
+- Main map ab `assets/mile47/gas_station.glb` hai (store + canopy + pumps + interior + trees + road, pre-assembled).
+- Collision: har solid mesh par box collider. Trees, bushes, background, ground, road aur chhoti/flat items par collision nahi.
+- Player forecourt (5, 0.25, 3) se start hota hai, store ka entrance north (-Z) par hai.
+- Hand-built store/canopy layout ab band hai (overlap se bachne ke liye). Camp props Zone 2 clearing me hain (pack se).
+- Store ke andar `Fusible` (breaker box) bhi model me hai. Doors abhi static hain, animation baad me.

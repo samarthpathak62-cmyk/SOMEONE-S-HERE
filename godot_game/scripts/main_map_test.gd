@@ -125,7 +125,7 @@ func _setup_map_loader_and_player() -> void:
 	else:
 		_player = HorrorPlayerController.new()
 	_player.name = "Player"
-	_player.position = Vector3(0.0, 0.25, 9.5)
+	_player.position = Vector3(5.0, 0.25, 3.0)
 	add_child(_player)
 
 	_player.inspected_target_changed.connect(_on_inspected_target_changed)
