@@ -423,7 +423,9 @@ func _attach_clips(char_root: Node3D, clip_files: PackedStringArray) -> Animatio
 func _retarget_to_skeleton(anim: Animation, skel: Skeleton3D, skel_rel: String) -> int:
 	for t in range(anim.get_track_count() - 1, -1, -1):
 		var np: NodePath = anim.track_get_path(t)
-		var bone: String = np.get_subname(0) if np.get_subname_count() > 0 else ""
+		var bone: String = ""
+		if np.get_subname_count() > 0:
+			bone = String(np.get_subname(0))
 		if bone.is_empty() or skel.find_bone(bone) < 0:
 			anim.remove_track(t)
 		else:
