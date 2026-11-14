@@ -27,12 +27,35 @@ func _ready() -> void:
 	_setup_environment_and_lighting()
 	_setup_map_loader_and_player()
 	_setup_ui_and_vhs_overlay()
+	_setup_ambience()
 
 	get_window().files_dropped.connect(_on_files_dropped)
 
 	# Build map & equip player handhelds
 	_map_loader.build_all_and_equip_player(_player)
 	_refresh_hud_text()
+
+
+# Night ambience: wind + crickets loops from res://assets/audio (silently skipped if missing)
+func _setup_ambience() -> void:
+	_add_loop_player("res://assets/audio/amb_wind_loop.wav", -12.0, "AmbWind")
+	_add_loop_player("res://assets/audio/amb_night_crickets_loop.wav", -16.0, "AmbCrickets")
+
+
+func _add_loop_player(res_path: String, volume_db: float, node_name: String) -> void:
+	if not ResourceLoader.exists(res_path):
+		return
+	var stream := load(res_path) as AudioStreamWAV
+	if stream == null:
+		return
+	stream.loop_mode = AudioStreamWAV.LOOP_FORWARD
+	stream.loop_end = int(stream.get_length() * float(stream.mix_rate))
+	var p := AudioStreamPlayer.new()
+	p.name = node_name
+	p.stream = stream
+	p.volume_db = volume_db
+	add_child(p)
+	p.play()
 
 
 func _setup_environment_and_lighting() -> void:
@@ -274,6 +297,10 @@ func _unhandled_input(event: InputEvent) -> void:
 				_player.teleport_to(_map_loader.landmark_gallery, 180.0)
 			KEY_4:
 				_player.teleport_to(_map_loader.landmark_showcase, 0.0)
+			KEY_N:
+				var clip: String = _map_loader.cycle_enemy_clip()
+				if not clip.is_empty():
+					_refresh_hud_text("Enemy clip: " + clip)
 
 
 func _toggle_manifest(open_state: bool) -> void:

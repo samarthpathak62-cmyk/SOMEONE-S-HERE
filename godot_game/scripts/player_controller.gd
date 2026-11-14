@@ -49,6 +49,9 @@ var _broom_pivot: Node3D
 
 var _sfx_player: AudioStreamPlayer
 var _sfx_playback: AudioStreamGeneratorPlayback
+var _file_sfx_player: AudioStreamPlayer = null
+var _click_stream: AudioStream = null
+var _phone_stream: AudioStream = null
 var _last_ray_text: String = ""
 
 
@@ -214,6 +217,31 @@ func _build_procedural_audio() -> void:
 	add_child(_sfx_player)
 	_sfx_player.play()
 	_sfx_playback = _sfx_player.get_stream_playback() as AudioStreamGeneratorPlayback
+	_load_file_sfx()
+
+
+# Real .wav sfx from res://assets/audio (falls back to synth bursts if the file is missing)
+func _load_file_sfx() -> void:
+	_file_sfx_player = AudioStreamPlayer.new()
+	_file_sfx_player.name = "FileSFX"
+	_file_sfx_player.volume_db = -3.0
+	add_child(_file_sfx_player)
+	_click_stream = _load_stream_if_exists("res://assets/audio/sfx_flashlight_click.wav")
+	_phone_stream = _load_stream_if_exists("res://assets/audio/sfx_phone_sms_beep.wav")
+
+
+func _load_stream_if_exists(res_path: String) -> AudioStream:
+	if not ResourceLoader.exists(res_path):
+		return null
+	return load(res_path) as AudioStream
+
+
+func _play_file_sfx(stream: AudioStream) -> bool:
+	if stream == null or _file_sfx_player == null:
+		return false
+	_file_sfx_player.stream = stream
+	_file_sfx_player.play()
+	return true
 
 
 func _play_synth_burst(duration_sec: float, freq_hz: float, noise_mix: float, amp: float) -> void:
@@ -252,12 +280,14 @@ func _unhandled_input(event: InputEvent) -> void:
 				flashlight_enabled = not flashlight_enabled
 				_spot_inner.visible = flashlight_enabled
 				_spot_outer.visible = flashlight_enabled
-				_play_synth_burst(0.045, 1350.0, 0.55, 0.35)
+				if not _play_file_sfx(_click_stream):
+					_play_synth_burst(0.045, 1350.0, 0.55, 0.35)
 				_emit_status()
 			KEY_P:
 				phone_open = not phone_open
 				_phone_pivot.visible = phone_open
-				_play_synth_burst(0.05, 880.0, 0.25, 0.25)
+				if not _play_file_sfx(_phone_stream):
+					_play_synth_burst(0.05, 880.0, 0.25, 0.25)
 				_emit_status()
 			KEY_B:
 				broom_equipped = not broom_equipped

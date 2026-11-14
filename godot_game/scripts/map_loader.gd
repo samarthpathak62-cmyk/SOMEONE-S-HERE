@@ -13,6 +13,13 @@ var _dynamic_pack_root: Node3D
 var _gallery_root: Node3D
 var _placeholder_station: Node3D
 var _station_interior_lights: Array[OmniLight3D] = []
+var enemy_anim_player: AnimationPlayer = null
+var enemy_clip_names: PackedStringArray = []
+var enemy_clip_index: int = -1
+
+const ENEMY_MODEL_RES: String = "res://assets/Model1withanimations/Male_Character_PSX/MaleCharacter.fbx"
+const ENEMY_TEX_RES: String = "res://assets/Model1withanimations/Male_Character_PSX/MaleCharacter_Texture.png"
+const ENEMY_LOOPING_CLIPS: Array[String] = ["Idle", "Walking", "Running", "Crouched_Walking", "Talking", "Look_Around"]
 
 var _project_dir: String = ""
 var _repo_root: String = ""
@@ -51,9 +58,8 @@ func build_all_and_equip_player(player: HorrorPlayerController) -> void:
 
 	# 1. Load Player Handhelds + Uploaded Items & Vehicles (fewitemsandmodels/)
 	var items_dir: String = _find_existing_dir([
-		_repo_root.path_join("fewitemsandmodels"),
 		_project_dir.path_join("assets/fewitemsandmodels"),
-		_project_dir.path_join("fewitemsandmodels")
+		_repo_root.path_join("fewitemsandmodels")
 	])
 	_load_uploaded_items_and_vehicles(items_dir, player)
 
@@ -303,66 +309,146 @@ func _build_zone4_item_table(items_dir: String) -> void:
 
 
 func _load_enemy_character_preview() -> void:
-	var anim_dir: String = _find_existing_dir([
-		_repo_root.path_join("Model1withanimations"),
-		_project_dir.path_join("Model1withanimations")
-	])
-	if anim_dir.is_empty():
+	var anim_dir: String = _project_dir.path_join("assets/Model1withanimations")
+	if not DirAccess.dir_exists_absolute(anim_dir):
 		return
 
-	var char_zip: String = anim_dir.path_join("Male Character PS1_PSX.zip")
-	var extracted_char_dir: String = ""
-	if FileAccess.file_exists(char_zip) and _get_file_size(char_zip) > 2048:
-		extracted_char_dir = _extract_zip_cached(char_zip, "Male_Character_PSX")
-
-	# List animation FBX files found so user can verify in Tab Manifest
-	var fbx_list: PackedStringArray = []
+	# Every animation FBX in the folder becomes a clip on the character
+	var clip_files: PackedStringArray = []
 	var d := DirAccess.open(anim_dir)
 	if d != null:
 		d.list_dir_begin()
 		var fn: String = d.get_next()
 		while not fn.is_empty():
 			if not d.current_is_dir() and fn.to_lower().ends_with(".fbx"):
-				fbx_list.append(fn)
+				clip_files.append(fn)
 			fn = d.get_next()
 		d.list_dir_end()
+	clip_files.sort()
 
 	var enemy_pos := Vector3(-29.0, 0.02, -5.5)
-	var spawned_fbx: Node3D = null
-	if ClassDB.class_exists("FBXDocument") and not extracted_char_dir.is_empty():
-		var fbx_file: String = extracted_char_dir.path_join("Male Character PS1_PSX/MaleCharacter.fbx")
-		var tex_file: String = extracted_char_dir.path_join("Male Character PS1_PSX/MaleCharacter_Texture.png")
-		if FileAccess.file_exists(fbx_file):
-			spawned_fbx = _instantiate_gltf_or_fbx(fbx_file)
-			if spawned_fbx != null and FileAccess.file_exists(tex_file):
-				var img := Image.load_from_file(tex_file)
-				if img != null and not img.is_empty():
-					var tex := ImageTexture.create_from_image(img)
-					_apply_psx_texture_recursive(spawned_fbx, tex)
+	var char_root: Node3D = _load_res_scene(ENEMY_MODEL_RES)
+	if char_root == null:
+		push_warning("Enemy model not imported yet: %s (open the project once in the editor so Godot imports it)" % ENEMY_MODEL_RES)
+		return
+	char_root.name = "EnemyMaleCharacter"
 
-	if spawned_fbx != null:
-		var aabb: AABB = compute_node_aabb(spawned_fbx)
-		var sc: float = 1.0
-		if aabb.size.y > 0.01 and (aabb.size.y > 4.0 or aabb.size.y < 0.5):
-			sc = 1.78 / aabb.size.y
-		spawned_fbx.scale = Vector3.ONE * sc
-		var center_offset: Vector3 = Vector3(aabb.position.x + aabb.size.x * 0.5, aabb.position.y, aabb.position.z + aabb.size.z * 0.5) * sc
-		spawned_fbx.position = enemy_pos - center_offset
-		_add_trimesh_collisions_recursive(spawned_fbx, "Enemy Model: MaleCharacter.fbx (%d FBX anims ready)" % fbx_list.size())
-		_world_root.add_child(spawned_fbx)
+	if ResourceLoader.exists(ENEMY_TEX_RES):
+		var tex := load(ENEMY_TEX_RES) as Texture2D
+		if tex != null:
+			_apply_psx_texture_recursive(char_root, tex)
+
+	var aabb: AABB = compute_node_aabb(char_root)
+	var sc: float = 1.0
+	if aabb.size.y > 0.01 and (aabb.size.y > 4.0 or aabb.size.y < 0.5):
+		sc = 1.78 / aabb.size.y
+	char_root.scale = Vector3.ONE * sc
+	var center_offset := Vector3(aabb.position.x + aabb.size.x * 0.5, aabb.position.y, aabb.position.z + aabb.size.z * 0.5) * sc
+	char_root.position = enemy_pos - center_offset
+	_world_root.add_child(char_root)
+	_add_trimesh_collisions_recursive(char_root, "Enemy Model: MaleCharacter.fbx")
+
+	# Attach all clips (needs the character in the tree so skeleton paths resolve)
+	enemy_anim_player = _attach_clips(char_root, clip_files)
+	if enemy_anim_player != null:
+		enemy_clip_names = enemy_anim_player.get_animation_list()
+		if enemy_anim_player.has_animation("Idle"):
+			enemy_anim_player.play("Idle")
 
 	_spawn_floating_label(
 		enemy_pos + Vector3(0.0, 2.35, 0.0),
-		"ENEMY: MaleCharacter PSX\nAnimations Found (%d): %s" % [fbx_list.size(), ", ".join(fbx_list)],
+		"ENEMY: MaleCharacter PSX\nClips (%d): %s" % [enemy_clip_names.size(), ", ".join(enemy_clip_names)],
 		Color(1.0, 0.55, 0.55)
 	)
 	asset_manifest.append({
 		"category": "Enemy & Animations",
-		"name": "MaleCharacter.fbx + %d Animations (%s)" % [fbx_list.size(), ", ".join(fbx_list)],
-		"size_text": "~1.78m Humanoid",
-		"meshes": fbx_list.size(),
+		"name": "MaleCharacter.fbx + %d clips (%s)" % [enemy_clip_names.size(), ", ".join(enemy_clip_names)],
+		"size_text": "1.78m Humanoid",
+		"meshes": enemy_clip_names.size(),
 		"pos": enemy_pos + Vector3(0.0, 0.2, 3.8)
 	})
+
+
+# Loads a project (res://) model that Godot has imported (FBX, GLB...) as a fresh instance.
+func _load_res_scene(res_path: String) -> Node3D:
+	if not ResourceLoader.exists(res_path):
+		return null
+	var ps := load(res_path) as PackedScene
+	if ps == null:
+		return null
+	return ps.instantiate() as Node3D
+
+
+# Copies the first animation of each FBX onto the character's AnimationPlayer, re-pointed at its skeleton.
+func _attach_clips(char_root: Node3D, clip_files: PackedStringArray) -> AnimationPlayer:
+	var skel := _find_first_of_class(char_root, "Skeleton3D") as Skeleton3D
+	if skel == null:
+		push_warning("Enemy: no Skeleton3D found, animations skipped")
+		return null
+	var ap := _find_first_of_class(char_root, "AnimationPlayer") as AnimationPlayer
+	if ap == null:
+		ap = AnimationPlayer.new()
+		ap.name = "AnimationPlayer"
+		char_root.add_child(ap)
+	var skel_rel: String = str(char_root.get_path_to(skel))
+
+	var lib: AnimationLibrary
+	if ap.has_animation_library(""):
+		lib = ap.get_animation_library("")
+	else:
+		lib = AnimationLibrary.new()
+		ap.add_animation_library("", lib)
+
+	for fn in clip_files:
+		var clip_name: String = fn.get_basename().replace(" ", "_")
+		var src: Node3D = _load_res_scene("res://assets/Model1withanimations/" + fn)
+		if src == null:
+			continue
+		var src_ap := _find_first_of_class(src, "AnimationPlayer") as AnimationPlayer
+		if src_ap != null and not src_ap.get_animation_list().is_empty():
+			var anim_src_name: StringName = src_ap.get_animation_list()[0]
+			var anim := src_ap.get_animation(anim_src_name).duplicate() as Animation
+			var kept: int = _retarget_to_skeleton(anim, skel, skel_rel)
+			if kept > 0:
+				if clip_name in ENEMY_LOOPING_CLIPS:
+					anim.loop_mode = Animation.LOOP_LINEAR
+				lib.add_animation(clip_name, anim)
+			else:
+				push_warning("Enemy clip '%s': no bones matched the character skeleton" % clip_name)
+		src.queue_free()
+	return ap
+
+
+# Re-targets bone tracks to "<skeleton path>:<bone>" on the character. Returns tracks kept.
+func _retarget_to_skeleton(anim: Animation, skel: Skeleton3D, skel_rel: String) -> int:
+	for t in range(anim.get_track_count() - 1, -1, -1):
+		var np: NodePath = anim.track_get_path(t)
+		var bone: String = np.get_subname(0) if np.get_subname_count() > 0 else ""
+		if bone.is_empty() or skel.find_bone(bone) < 0:
+			anim.remove_track(t)
+		else:
+			anim.track_set_path(t, NodePath(skel_rel + ":" + bone))
+	return anim.get_track_count()
+
+
+func _find_first_of_class(root: Node, cls: String) -> Node:
+	if root.is_class(cls):
+		return root
+	for ch in root.get_children():
+		var found: Node = _find_first_of_class(ch, cls)
+		if found != null:
+			return found
+	return null
+
+
+# Play the next enemy clip (used by the N key for previewing animations)
+func cycle_enemy_clip() -> String:
+	if enemy_anim_player == null or enemy_clip_names.is_empty():
+		return ""
+	enemy_clip_index = (enemy_clip_index + 1) % enemy_clip_names.size()
+	var clip: String = enemy_clip_names[enemy_clip_index]
+	enemy_anim_player.play(clip)
+	return clip
 
 
 # ============================================================================
@@ -372,8 +458,8 @@ func _load_enemy_character_preview() -> void:
 func _load_utility_infrastructure() -> void:
 	var util_zip: String = ""
 	for cand in [
-		_repo_root.path_join("Utility Infrastructure.zip"),
-		_project_dir.path_join("Utility Infrastructure.zip")
+		_project_dir.path_join("assets/Utility Infrastructure.zip"),
+		_repo_root.path_join("Utility Infrastructure.zip")
 	]:
 		if FileAccess.file_exists(cand) and _get_file_size(cand) > 10000:
 			util_zip = cand
@@ -472,6 +558,7 @@ func _discover_and_load_retroworld() -> void:
 
 	# A. Check unzipped folders in repo root or godot_game/
 	var dir_candidates: Array[String] = [
+		_project_dir.path_join("assets/map"),
 		_repo_root.path_join("map"),
 		_repo_root.path_join("3D_Retro_World 0.01"),
 		_repo_root.path_join("3D_Retro_World"),
@@ -489,6 +576,7 @@ func _discover_and_load_retroworld() -> void:
 	if models.is_empty():
 		var downloads_dir: String = OS.get_system_dir(OS.SYSTEM_DIR_DOWNLOADS).replace("\\", "/").trim_suffix("/")
 		var zip_candidates: Array[String] = [
+			_project_dir.path_join("assets/3D_Retro_World 0.01.zip"),
 			_repo_root.path_join("3D_Retro_World 0.01.zip"),
 			_repo_root.path_join("Base Pack.zip"),
 			_repo_root.path_join("3D Assets.zip"),
@@ -533,6 +621,10 @@ func _discover_and_load_retroworld() -> void:
 
 
 func _populate_retroworld_models(raw_models: Array[Dictionary]) -> void:
+	# Rebuild cleanly so dropping the pack twice never duplicates the map
+	_clear_node_children(_dynamic_pack_root)
+	_clear_node_children(_gallery_root)
+
 	# Filter out lower LODs (_lod_1, _lod_2, billboard) so map & gallery show crisp LOD0 models
 	var primary_models: Array[Dictionary] = []
 	for item in raw_models:
@@ -540,7 +632,6 @@ func _populate_retroworld_models(raw_models: Array[Dictionary]) -> void:
 		if "_lod_1" in low_rel or "_lod_2" in low_rel or "_lod1" in low_rel or "_lod2" in low_rel or "billboard" in low_rel:
 			continue
 		primary_models.append(item)
-
 	if primary_models.is_empty():
 		primary_models = raw_models
 
@@ -578,65 +669,46 @@ func _populate_retroworld_models(raw_models: Array[Dictionary]) -> void:
 			_:
 				other_entries.append(rec)
 
-	# Sort Gas Station pieces largest footprint first -> main shop building goes dead center!
-	station_entries.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
-		var sa: Vector3 = (a["aabb"] as AABB).size
-		var sb_sz: Vector3 = (b["aabb"] as AABB).size
-		return (sa.x * sa.z) > (sb_sz.x * sb_sz.z)
-	)
+	# 1. Pieces that get ASSEMBLED by hand-measured layout (store shell, canopy, pumps, campsite)
+	var named: Dictionary = {}
+	for rec in station_entries:
+		named[str(rec["rel_path"]).get_file().get_basename()] = rec
+	for rec in camp_entries:
+		named[str(rec["rel_path"]).get_file().get_basename()] = rec
 
-	# 1. Place Gas Station Building & Forecourt Props at Zone 1 (X = 0, Z = -22)
-	var station_side_x: float = 14.0
-	for idx in range(station_entries.size()):
-		var rec: Dictionary = station_entries[idx]
+	var used: Dictionary = {}
+	_assemble_mile47_station(named, used)
+	_assemble_campsite(named, used)
+
+	# 2. Anything from the station/camp folders NOT in the layout goes to a labelled side row (north of the map)
+	var leftover_x: float = -60.0
+	for rec in station_entries + camp_entries:
+		var key: String = str(rec["rel_path"]).get_file().get_basename()
+		if used.has(key):
+			continue
 		var inst: Node3D = (rec["proto"] as Node3D).duplicate() as Node3D
 		var aabb: AABB = rec["aabb"]
-		var target_pos: Vector3
-		if idx == 0:
-			target_pos = Vector3(0.0, 0.03, -22.0)
-			_spawn_station_inspection_lights(target_pos, aabb)
-		else:
-			var span: float = maxf(aabb.size.x, 2.5) + 3.2
-			target_pos = Vector3(station_side_x, 0.03, -15.0 - float(idx % 2) * 8.5)
-			station_side_x += span
-		_ground_and_add_node(inst, _dynamic_pack_root, target_pos, aabb, str(rec["rel_path"]), rec["mesh_names"])
+		var span: float = maxf(aabb.size.x, 2.5) + 3.0
+		var pos := Vector3(leftover_x + span * 0.5, 0.03, -62.0)
+		leftover_x += span
+		_ground_and_add_node(inst, _dynamic_pack_root, pos, aabb, str(rec["rel_path"]), rec["mesh_names"])
 		_spawn_floating_label(
-			target_pos + Vector3(0.0, maxf(aabb.size.y, 1.5) + 0.9, 0.0),
-			"%s\n[%.1fm x %.1fm x %.1fm | %d meshes]" % [str(rec["rel_path"]).get_file(), aabb.size.x, aabb.size.y, aabb.size.z, (rec["mesh_names"] as PackedStringArray).size()],
-			Color(1.0, 0.90, 0.55)
+			pos + Vector3(0.0, maxf(aabb.size.y, 1.0) + 0.6, 0.0),
+			"%s\n[unassembled | %.1fm x %.1fm x %.1fm]" % [key, aabb.size.x, aabb.size.y, aabb.size.z],
+			Color(1.0, 0.9, 0.55)
 		)
 
-	# 2. Place Camping Props at Zone 2 Forest Clearing (X = 44, Z = -36)
-	var camp_center := Vector3(44.0, 0.02, -36.0)
-	var fire_light := OmniLight3D.new()
-	fire_light.position = camp_center + Vector3(0.0, 1.1, 0.0)
-	fire_light.light_color = Color(1.0, 0.54, 0.18)
-	fire_light.light_energy = 3.4
-	fire_light.omni_range = 16.0
-	fire_light.shadow_enabled = true
-	_dynamic_pack_root.add_child(fire_light)
-
-	for idx in range(camp_entries.size()):
-		var rec: Dictionary = camp_entries[idx]
-		var inst: Node3D = (rec["proto"] as Node3D).duplicate() as Node3D
-		var aabb: AABB = rec["aabb"]
-		var ang: float = (TAU / maxf(float(camp_entries.size()), 1.0)) * float(idx)
-		var rad: float = 4.2 + maxf(aabb.size.x, aabb.size.z) * 0.45
-		var pos: Vector3 = camp_center + Vector3(cos(ang) * rad, 0.0, sin(ang) * rad)
-		inst.rotation.y = -ang - PI * 0.5
-		_ground_and_add_node(inst, _dynamic_pack_root, pos, aabb, str(rec["rel_path"]), rec["mesh_names"])
-
-	# 3. Place Road Modules neatly on Road Test Strip (X = -65 .. -20, Z = -28)
+	# 3. Road modules on a test strip south of the highway
 	var road_cursor_x: float = -65.0
 	for rec in road_entries:
 		var inst: Node3D = (rec["proto"] as Node3D).duplicate() as Node3D
 		var aabb: AABB = rec["aabb"]
 		var w: float = clampf(aabb.size.x, 3.0, 28.0)
-		var pos := Vector3(road_cursor_x + w * 0.5, 0.03, -34.0)
+		var pos := Vector3(road_cursor_x + w * 0.5, 0.03, 34.0)
 		road_cursor_x += w + 3.5
 		_ground_and_add_node(inst, _dynamic_pack_root, pos, aabb, str(rec["rel_path"]), rec["mesh_names"])
 
-	# 4. Scatter Trees & Rocks around the Woods Perimeter (keeping Station, Road & Gallery clear!)
+	# 4. Trees & rocks around the woods (keeping station, highway & campsite clear)
 	if not nature_entries.is_empty():
 		var rng := RandomNumberGenerator.new()
 		rng.seed = 4709
@@ -645,13 +717,12 @@ func _populate_retroworld_models(raw_models: Array[Dictionary]) -> void:
 			var rec: Dictionary = nature_entries[i % nature_entries.size()]
 			var inst: Node3D = (rec["proto"] as Node3D).duplicate() as Node3D
 			var aabb: AABB = rec["aabb"]
-			var angle: float = rng.randf_range(-PI * 1.02, 0.12) # North/East/West woods arc
+			var angle: float = rng.randf_range(-PI * 1.02, 0.12)
 			var dist: float = rng.randf_range(44.0, 96.0)
 			var pos := Vector3(cos(angle) * dist, 0.0, sin(angle) * dist - 14.0)
-			# Keep Highway strip (-9 < Z < 11) and Campsite clearing clear
 			if pos.z > -9.5 and pos.z < 11.5:
 				pos.z = -14.0 - rng.randf_range(4.0, 22.0)
-			if pos.distance_to(camp_center) < 11.0:
+			if pos.distance_to(CAMP_CENTER) < 11.0:
 				pos.x += 14.0
 			var sc: float = rng.randf_range(0.88, 1.16)
 			inst.scale = Vector3.ONE * sc
@@ -659,7 +730,7 @@ func _populate_retroworld_models(raw_models: Array[Dictionary]) -> void:
 			var scaled_aabb := AABB(aabb.position * sc, aabb.size * sc)
 			_ground_and_add_node(inst, _dynamic_pack_root, pos, scaled_aabb, str(rec["rel_path"]), rec["mesh_names"])
 
-	# 5. Build Zone 3 Complete Labeled Asset Gallery Grid (1 of EVERY unique asset!)
+	# 5. Zone 3 gallery: one labelled copy of EVERY unique asset
 	var all_unique: Array[Dictionary] = []
 	all_unique.append_array(station_entries)
 	all_unique.append_array(camp_entries)
@@ -667,6 +738,235 @@ func _populate_retroworld_models(raw_models: Array[Dictionary]) -> void:
 	all_unique.append_array(nature_entries)
 	all_unique.append_array(other_entries)
 	_build_gallery_grid(all_unique)
+
+	asset_manifest.append({
+		"category": "Mile 47 Station (assembled)",
+		"name": "Gas & Mart shell, canopy, 4 pumps, lamps, sign, bins, pavement + Campsite (%d pieces placed)" % used.size(),
+		"size_text": "Store 12m x 8m, canopy 6m x 6m, 3m walls",
+		"meshes": used.size(),
+		"pos": STORE_ORIGIN
+	})
+
+
+func _clear_node_children(n: Node) -> void:
+	if n == null:
+		return
+	for c in n.get_children():
+		n.remove_child(c)
+		c.queue_free()
+
+
+# ============================================================================
+# MILE 47 GAS & MART — hand assembled from the uploaded modular pack
+# Every position below uses the measured pivots of the .glb pieces:
+#   Wall_4x3_A/B, Window_4x3_B, Door_A/B, Wall_Pillar  -> pivot at centre-bottom (x/z centred)
+#   Door_A -> origin = left edge (spans x 0..1), Door_B -> origin = right edge (spans x -1..0)
+#   Roof_Top / Roof_Floor / GasRoof_x -> 2 m grid, centred
+#   Gas_Pilar 6 m tall, Gas_Pump 2.5 m tall, Lamp_01 0.25 m tall
+# Store footprint: x 6..18.0, z -25..-17 (front facade at z=-17 faces the highway)
+# Canopy centre: (0, -21), 3x3 GasRoof tiles, top at 6.0 m
+# ============================================================================
+
+const STORE_ORIGIN := Vector3(6.0, 0.0, -25.0)
+const STORE_W: float = 12.0
+const STORE_D: float = 8.0
+const STORE_WALL_COL := Color(0.60, 0.58, 0.53)
+const CANOPY_CENTER := Vector3(0.0, 0.0, -21.0)
+const CANOPY_Y: float = 5.0
+const CAMP_CENTER := Vector3(44.0, 0.0, -36.0)
+
+
+func _assemble_mile47_station(named: Dictionary, used: Dictionary) -> void:
+	var o: Vector3 = STORE_ORIGIN
+	var w: float = STORE_W
+	var d: float = STORE_D
+
+	# --- Store shell ----------------------------------------------------------
+	# Back wall (z = 0): solid panels at x 0..4, 4..8; Door_B (backroom door) at x 9..10; filler 8..9 & 10..12
+	_place(named, used, "Wall_4x3_A", o + Vector3(2.0, 0.0, 0.0), 0.0, true)
+	_place(named, used, "Wall_4x3_A", o + Vector3(6.0, 0.0, 0.0), 0.0, true)
+	_place(named, used, "Door_B", o + Vector3(10.0, 0.0, 0.0), 0.0, true)
+	_box(Vector3(1.0, 0.9, 0.3), o + Vector3(9.5, 2.55, 0.0), STORE_WALL_COL, true)  # lintel over back door
+	_box(Vector3(1.0, 3.0, 0.3), o + Vector3(8.5, 1.5, 0.0), STORE_WALL_COL, true)
+	_box(Vector3(2.0, 3.0, 0.3), o + Vector3(11.0, 1.5, 0.0), STORE_WALL_COL, true)
+
+	# Side walls (x = 0 and x = W), yaw 90 so each 4 m panel runs along Z
+	for z in [2.0, 6.0]:
+		_place(named, used, "Wall_4x3_A", o + Vector3(0.0, 0.0, z), 90.0, true)
+		_place(named, used, "Wall_4x3_B", o + Vector3(w, 0.0, z), 90.0, true)
+
+	# Front facade (z = D, faces the highway): solid 0..4 | front door 4..5 | window 5..8.8 | solid 8.8..12
+	_place(named, used, "Wall_4x3_A", o + Vector3(2.0, 0.0, d), 0.0, true)
+	_place(named, used, "Door_A", o + Vector3(4.0, 0.0, d), 0.0, true)
+	_box(Vector3(1.0, 0.9, 0.3), o + Vector3(4.5, 2.55, d), STORE_WALL_COL, true)  # lintel over front door
+	_place(named, used, "Window_4x3_B", o + Vector3(6.9, 0.0, d), 0.0, false)
+	_box(Vector3(3.8, 1.0, 0.3), o + Vector3(6.9, 0.5, d), STORE_WALL_COL, true)     # sill under window
+	_box(Vector3(3.8, 0.2, 0.3), o + Vector3(6.9, 2.9, d), STORE_WALL_COL, true)     # header above window
+	_box(Vector3(3.2, 3.0, 0.3), o + Vector3(10.4, 1.5, d), STORE_WALL_COL, true)    # solid filler 8.8..12
+
+	# Corner pillars
+	for corner in [Vector3(0.0, 0.0, 0.0), Vector3(w, 0.0, 0.0), Vector3(0.0, 0.0, d), Vector3(w, 0.0, d)]:
+		_place(named, used, "Wall_Pillar", o + corner, 0.0, true)
+
+	# Floor (Roof_Floor 2 m tiles) and roof (Roof_Top 2 m tiles) + dark ceiling so you never see sky from inside
+	for i in range(int(w / 2.0)):
+		for j in range(int(d / 2.0)):
+			var tile: Vector3 = o + Vector3(1.0 + 2.0 * float(i), 0.0, 1.0 + 2.0 * float(j))
+			_place(named, used, "Roof_Floor", tile + Vector3(0.0, 0.06, 0.0), 0.0, true)
+			_place(named, used, "Roof_Top", tile + Vector3(0.0, 3.0, 0.0), 0.0, false)
+	_box(Vector3(w, 0.06, d), o + Vector3(w * 0.5, 2.96, d * 0.5), Color(0.14, 0.13, 0.12), true)
+
+	# Store signage: Light_Sign on the roofline + readable Label3D
+	_place(named, used, "Light_Sign", o + Vector3(w * 0.5, 3.8, d + 0.05), 0.0, false)
+	_spawn_plain_label(o + Vector3(w * 0.5, 3.8, d + 0.45), "MILE 47 GAS & MART", Color(1.0, 0.85, 0.45), 150, 0.011)
+
+	# Store interior: a dim, flickering-ready ceiling light (inside is still empty, stock comes later)
+	var store_light := OmniLight3D.new()
+	store_light.position = o + Vector3(w * 0.5, 2.5, d * 0.5)
+	store_light.light_color = Color(0.95, 0.9, 0.78)
+	store_light.light_energy = 1.1
+	store_light.omni_range = 12.0
+	_dynamic_pack_root.add_child(store_light)
+	_place(named, used, "FireExtinguisher", o + Vector3(1.0, 0.0, 1.2), 0.0, false)
+
+	# Outside the store: bins on the east side, pavement strip along the front
+	_place(named, used, "Trash_Can", o + Vector3(w + 1.5, 0.0, 3.0), 0.0, true)
+	_place(named, used, "Trash_Box", o + Vector3(w + 1.5, 0.0, 5.0), 0.0, true)
+	_place(named, used, "Trash_Bag", o + Vector3(w + 1.4, 0.0, 1.5), 0.0, false)
+	for i in range(13):
+		_place(named, used, "Pavement_0", Vector3(6.5 + float(i), 0.05, -16.5), 0.0, false)
+
+	# --- Canopy (3x3 GasRoof tiles, 2 m each, top at 6 m) -------------------
+	var c: Vector3 = CANOPY_CENTER
+	var k: int = 1
+	for i in range(3):
+		for j in range(3):
+			var key: String = "GasRoof_0"
+			if not (i == 1 and j == 1):
+				key = "GasRoof_%d" % k
+				k += 1
+			_place(named, used, key, c + Vector3((float(i) - 1.0) * 2.0, CANOPY_Y, (float(j) - 1.0) * 2.0), 0.0, true)
+
+	# Canopy pillars (6 m, inset from the canopy edge)
+	for sx in [-2.2, 2.2]:
+		for sz in [-2.2, 2.2]:
+			_place(named, used, "Gas_Pilar", c + Vector3(sx, 0.0, sz), 0.0, true)
+
+	# Two islands of two pumps: z = -19.8 (Gas_Pump) and z = -22.2 (Gas_Pump_Base), x = +-1.5
+	_place(named, used, "Gas_Pump", c + Vector3(-1.5, 0.0, 1.2), 0.0, true)
+	_place(named, used, "Gas_Pump", c + Vector3(1.5, 0.0, 1.2), 0.0, true)
+	_place(named, used, "Gas_Pump_Base", c + Vector3(-1.5, 0.0, -1.2), 0.0, true)
+	_place(named, used, "Gas_Pump_Base", c + Vector3(1.5, 0.0, -1.2), 0.0, true)
+
+	# Canopy lamps (0.25 m tall, hung just under the roof at y 4.75) + warm lights
+	for lz in [1.2, -1.2]:
+		_place(named, used, "Lamp_01", c + Vector3(0.0, CANOPY_Y - 0.25, lz), 0.0, false)
+		var lamp := OmniLight3D.new()
+		lamp.position = c + Vector3(0.0, CANOPY_Y - 0.5, lz)
+		lamp.light_color = Color(1.0, 0.86, 0.62)
+		lamp.light_energy = 2.2
+		lamp.omni_range = 10.0
+		_dynamic_pack_root.add_child(lamp)
+
+	# Price board + Number sign at the forecourt edge
+	_place(named, used, "Sign_04", c + Vector3(-5.5, 0.0, 1.5), 0.0, false)
+	_place(named, used, "Number_Sign", c + Vector3(-5.5, 1.6, -2.0), 0.0, false)
+
+	# Forecourt Zone label
+	_spawn_plain_label(c + Vector3(0.0, 6.6, 0.0), "MILE 47 GAS & MART — FORECOURT", Color(1.0, 0.9, 0.6), 110, 0.012)
+
+	asset_manifest.append({
+		"category": "Mile 47 Station (assembled)",
+		"name": "Store shell (12m x 8m, 3m walls, 2 doors, window), canopy 6m x 6m, 4 pumps, 2 lamps",
+		"size_text": "Store 12m x 8m | Canopy top 6.0m",
+		"meshes": used.size(),
+		"pos": o + Vector3(w * 0.5, 0.2, d * 0.5)
+	})
+
+
+func _assemble_campsite(named: Dictionary, used: Dictionary) -> void:
+	var c: Vector3 = CAMP_CENTER
+
+	# Tent (2.16 m square) with sleeping bag beside it (yaw 90 -> long side along Z)
+	_place(named, used, "Tent", c, 0.0, true)
+	_place(named, used, "SleepingBag", c + Vector3(-2.6, 0.0, 0.0), 90.0, false)
+	_place(named, used, "Lantern", c + Vector3(-2.6, 0.0, -1.8), 0.0, false)
+	_place(named, used, "Bag", c + Vector3(3.2, 0.0, -2.0), 0.0, false)
+	_place(named, used, "ThermalBottle", c + Vector3(3.6, 0.0, -1.6), 0.0, false)
+
+	# Fire pit 4.5 m south of the tent with cooker and pans
+	_place(named, used, "Bonfire", c + Vector3(0.0, 0.0, 4.5), 0.0, false)
+	_place(named, used, "Cooker", c + Vector3(-2.0, 0.0, 3.0), 0.0, false)
+	_place(named, used, "Pan_A", c + Vector3(-2.0, 0.28, 3.0), 0.0, false)
+	_place(named, used, "Pan_B", c + Vector3(-1.2, 0.0, 2.2), 0.0, false)
+
+	# Ice box with its cover on top
+	_place(named, used, "IceBox", c + Vector3(4.5, 0.0, 1.5), 0.0, true)
+	_place(named, used, "IceBox_Cover", c + Vector3(4.5, 0.0, 1.5), 0.0, false)
+
+	var fire_light := OmniLight3D.new()
+	fire_light.position = c + Vector3(0.0, 1.1, 4.5)
+	fire_light.light_color = Color(1.0, 0.54, 0.18)
+	fire_light.light_energy = 3.4
+	fire_light.omni_range = 16.0
+	fire_light.shadow_enabled = true
+	_dynamic_pack_root.add_child(fire_light)
+
+	asset_manifest.append({
+		"category": "Campsite (assembled)",
+		"name": "Tent, bonfire, cooker+pans, sleeping bag, ice box + cover, lantern, bag, bottle",
+		"size_text": "Tent 2.16m square",
+		"meshes": used.size(),
+		"pos": c
+	})
+
+
+# Place a named piece at an explicit pivot (no AABB centring), so modular pieces snap exactly.
+func _place(named: Dictionary, used: Dictionary, key: String, pos: Vector3, yaw_deg: float, collide: bool) -> void:
+	if not named.has(key):
+		push_warning("Mile 47 layout: missing piece '%s'" % key)
+		return
+	var rec: Dictionary = named[key]
+	var inst: Node3D = (rec["proto"] as Node3D).duplicate() as Node3D
+	inst.position = pos
+	inst.rotation_degrees = Vector3(0.0, yaw_deg, 0.0)
+	if collide:
+		_add_trimesh_collisions_recursive(inst, "%s  [Mile 47 layout]" % key)
+	_dynamic_pack_root.add_child(inst)
+	used[key] = true
+
+
+# Procedural panel for the gaps between modular pieces (same wall colour as the kit)
+func _box(size: Vector3, pos: Vector3, col: Color, collide: bool) -> void:
+	var mi := MeshInstance3D.new()
+	var bm := BoxMesh.new()
+	bm.size = size
+	mi.mesh = bm
+	mi.position = pos
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = col
+	mat.roughness = 0.95
+	mi.material_override = mat
+	_dynamic_pack_root.add_child(mi)
+	if collide:
+		var sb := StaticBody3D.new()
+		var cs := CollisionShape3D.new()
+		var bs := BoxShape3D.new()
+		bs.size = size
+		cs.shape = bs
+		sb.add_child(cs)
+		mi.add_child(sb)
+
+
+func _spawn_plain_label(pos: Vector3, txt: String, col: Color, font: int, px: float) -> void:
+	var lbl := Label3D.new()
+	lbl.text = txt
+	lbl.position = pos
+	lbl.font_size = font
+	lbl.pixel_size = px
+	lbl.modulate = col
+	lbl.outline_size = 10
+	_dynamic_pack_root.add_child(lbl)
 
 
 func _build_gallery_grid(entries: Array[Dictionary]) -> void:
